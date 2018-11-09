@@ -1,0 +1,128 @@
+p = xlsx_package
+wb = p.workbook
+
+# Colors for create the chart
+array_colors = ["808080", "004C99", "00CCCC", "6666FF", "95A1B3", "8ECBFF", "C0C0C0", "84AAE2", "A5D3FC", "9CA0FF" "DBDBDB"]
+
+wb.styles do |style|
+highlight_cell = style.add_style(bg_color: "5971BF",
+                                :b => true,
+                                :sz => 14,
+                                :font_name => 'Courier',
+                                 border: Axlsx::STYLE_THIN_BORDER,
+                                 alignment: { horizontal: :center },
+                                 num_fmt: 8)
+subtitle = style.add_style(bg_color: "5971BF",
+                                :b => true,
+                                :sz => 12,
+                                :font_name => 'Courier',
+                                 border: Axlsx::STYLE_THIN_BORDER,
+                                 alignment: { horizontal: :center },
+                                 num_fmt: 8)
+recognition_row = style.add_style(bg_color: "D0E6F7",
+                                border: Axlsx::STYLE_THIN_BORDER,
+                                 alignment: { horizontal: :center, vertical: :center })
+
+recognition_row_no_data = style.add_style(bg_color: "B9C0C3",
+                                 alignment: { horizontal: :center, vertical: :center })
+
+image_id_title = style.add_style(bg_color: "B9C0C3",
+                               :b => true,
+                               :sz => 12,
+                               alignment: { horizontal: :center },
+                                num_fmt: 8)
+
+no_views_style = style.add_style(bg_color: "DE333E",
+                               :b => true,
+                               :sz => 12,
+                               :font_name => 'Courier',
+                               alignment: { horizontal: :center },
+                                num_fmt: 8)
+
+date_cell = style.add_style(:b => true, :sz => 14, :font_name => 'Courier', bg_color: "5971BF", alignment: { horizontal: :center }, format_code: "yyyy-mm-dd", border: Axlsx::STYLE_THIN_BORDER)
+
+wb.add_worksheet(name: "Emails") do |sheet|
+  sheet.add_row ["","", "Date", @curr_date,""], style: [nil,nil, highlight_cell, date_cell, nil]
+  sheet.add_row [""]
+  col_widths= [10,20,30,20,20]
+  sheet.column_widths *col_widths
+  index = 1
+  @emotions.each do |emotion|
+    sheet.add_row [""]
+    last_row = nil
+    permalink = " " + emotion.permalink.to_s
+    label_image = sheet.add_row ["", "", "imageID:",permalink, "", ""], style: [image_id_title, image_id_title, image_id_title, image_id_title, image_id_title, image_id_title]
+    label_image.cells[3].type = :string
+    #puts sheet.rows.index(label_image)
+    @recognitions = Recognition.select("user_id, Max(updated_at) as updated_at").where("emotion_id = ?",emotion.id).group(:user_id)
+    has_views = true
+    cant_rows = 0;
+    if @recognitions.length < 1
+      sheet.add_row ["", "", "No", " views", ""], style: [nil,nil, no_views_style, no_views_style, nil]
+      has_views = false
+      sheet.add_row [""]
+      else
+      sheet.add_row ["Nº", "Name", "Email", "Device", "Last Recognition", "Total Recognitions"], style: [subtitle, subtitle, subtitle, subtitle, subtitle, subtitle]
+    end
+
+    @recognitions.each do |recognition|
+      user = recognition.user
+      devise_user = User.find_by_email user.email
+      @user_recognitions = Recognition.select("updated_at, device").where("emotion_id = ? AND user_id = ?",emotion.id, user.id).order(updated_at: :desc)
+      if(devise_user and devise_user.email.include?("@"))
+        counter = 0
+        @user_recognitions.each do |user_recognition|
+          last_recognition_date = user_recognition.updated_at.to_s
+          last_recognition_time = last_recognition_date[11..15]
+          last_recognition_year = last_recognition_date[0..3]
+          last_recognition_month = last_recognition_date[5..6]
+          last_recognition_day = last_recognition_date[8..9]
+          last_recognition_time_stamp = last_recognition_day + "/" + last_recognition_month + "/" + last_recognition_year + " " + last_recognition_time
+
+          if counter == 0
+            last_row = sheet.add_row [index, devise_user.name,devise_user.email, user_recognition.device, last_recognition_time_stamp, @user_recognitions.size], style: [recognition_row, recognition_row ,recognition_row, recognition_row, recognition_row, recognition_row]
+            cant_rows += 1
+          #else
+          #  sheet.add_row ["","","","",last_recognition_time_stamp], style: [recognition_row_no_data, recognition_row_no_data, recognition_row_no_data, recognition_row_no_data, recognition_row]
+          end
+          counter += 1
+        end
+      end
+      index += 1
+    end
+        if has_views
+
+            # Locate data for chart
+            data_start = sheet.rows[sheet.rows.index(label_image)+2].cells[5].r
+            data_end = sheet.rows[sheet.rows.index(last_row)].cells[5].r
+            sheet_data = data_start.to_s + ":" + data_end.to_s;
+
+            # Locate labels for Chart
+            label_start = sheet.rows[sheet.rows.index(label_image)+2].cells[1].r
+            label_end = sheet.rows[sheet.rows.index(last_row)].cells[1].r
+            sheet_label = label_start.to_s + ":" + label_end.to_s;
+
+            # Generate array for colors
+            array_color_chart = []
+            index_color = 0
+            cant_rows.times do |i|
+              array_color_chart.push(array_colors[index_color])
+              index_color += 1
+            end
+
+            # Resize the chart
+
+            if cant_rows > 3
+              sheet.add_chart(Axlsx::Pie3DChart, :start_at => [6,sheet.rows.index(label_image)], :end_at => [12, sheet.rows.index(last_row)], :title => " ") do |chart|
+               chart.add_series :data => sheet[sheet_data], :labels => sheet[sheet_label],  :colors => array_color_chart
+               end
+            else
+              sheet.add_chart(Axlsx::Pie3DChart, :start_at => [6,sheet.rows.index(label_image)-1], :end_at => [12, sheet.rows.index(last_row)+1], :title => " ") do |chart|
+               chart.add_series :data => sheet[sheet_data], :labels => sheet[sheet_label],  :colors => array_color_chart
+           end
+        end
+      end
+      sheet.add_row [""]
+    end
+  end
+end
